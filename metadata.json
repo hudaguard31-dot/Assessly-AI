@@ -1,0 +1,6 @@
+{
+  "name": "SMARTGRADE",
+  "description": "AI-powered intelligent answer grading assistant with configurable rubrics, evidence-backed scoring, confidence analysis, and instant regrading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
