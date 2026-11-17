@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Menu } from 'lucide-react';
+import { BookOpenCheck, Menu, X } from 'lucide-react';
 import { api } from './api';
 import { CreateQuestionPage } from './components/CreateQuestionPage';
-import { DashboardPage } from './components/DashboardPage';
+import { GradeWorkspacePage } from './components/GradeWorkspacePage';
 import { HistoryPage } from './components/HistoryPage';
 import { LoginPage } from './components/LoginPage';
 import { ResultsPage } from './components/ResultsPage';
-import { RubricManagementPage } from './components/RubricManagementPage';
-import { Sidebar } from './components/Sidebar';
-import { SubmitAnswerPage } from './components/SubmitAnswerPage';
 import type {
   DashboardSummary,
   GradingHistoryEntry,
@@ -19,31 +16,11 @@ import type {
   TeacherProfile,
 } from './types';
 
-const PAGE_TITLES: Record<PageId, { title: string; subtitle: string }> = {
-  dashboard: {
-    title: 'Teacher Dashboard',
-    subtitle: 'Overview of subjects, class averages, and evaluations needing review.',
-  },
-  'create-question': {
-    title: 'Questions & Subjects',
-    subtitle: 'Manage subjects, model answers, and initial grading rubrics.',
-  },
-  rubrics: {
-    title: 'Rubric Management',
-    subtitle: 'Edit grading criteria and automatically regrade affected answers.',
-  },
-  'submit-answer': {
-    title: 'Evaluate Student Answer',
-    subtitle: 'Submit or upload written answers for explainable AI grading.',
-  },
-  results: {
-    title: 'AI Grading Results',
-    subtitle: 'Inspect criterion evidence, confidence scores, and manual overrides.',
-  },
-  history: {
-    title: 'Grading History',
-    subtitle: 'Audit log of AI evaluations, rubric regrades, and teacher adjustments.',
-  },
+const DEFAULT_TEACHER: TeacherProfile = {
+  id: 1,
+  name: 'Dr. Elena Vance',
+  email: 'elena.vance@smartgrade.edu',
+  department: 'Life Sciences & STEM Assessment',
 };
 
 const STORAGE_KEY = 'smartgrade_teacher_session';
@@ -52,13 +29,13 @@ export default function App() {
   const [teacher, setTeacher] = useState<TeacherProfile | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? (JSON.parse(saved) as TeacherProfile) : null;
+      return saved ? (JSON.parse(saved) as TeacherProfile) : DEFAULT_TEACHER;
     } catch {
-      return null;
+      return DEFAULT_TEACHER;
     }
   });
 
-  const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
+  const [currentPage, setCurrentPage] = useState<PageId>('workspace');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -68,10 +45,11 @@ export default function App() {
   const [history, setHistory] = useState<GradingHistoryEntry[]>([]);
   const [loadingData, setLoadingData] = useState(false);
 
-  const [focusedQuestionId, setFocusedQuestionId] = useState<number | null>(null);
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<number | null>(
     null
   );
+  const [focusedQuestionId, setFocusedQuestionId] = useState<number | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<'report' | 'rubric'>('report');
 
   const loadAllData = useCallback(async () => {
     setLoadingData(true);
@@ -103,6 +81,7 @@ export default function App() {
 
   function handleLogin(profile: TeacherProfile) {
     setTeacher(profile);
+    setCurrentPage('workspace');
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
     } catch {
@@ -110,10 +89,9 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
+  function handleSwitchAccount() {
     setTeacher(null);
     setSelectedSubmissionId(null);
-    setCurrentPage('dashboard');
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -130,127 +108,174 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  const headerMeta = PAGE_TITLES[currentPage];
+  const navLinks: Array<{ id: PageId; label: string }> = [
+    { id: 'workspace', label: 'Grade & Rubrics' },
+    { id: 'results', label: 'Class Results' },
+    { id: 'history', label: 'Grading History' },
+    { id: 'create-question', label: 'New Question' },
+  ];
 
   return (
-    <div className="min-h-screen flex bg-slate-50 text-slate-900">
-      <Sidebar
-        currentPage={currentPage}
-        onNavigate={(page) => {
-          setCurrentPage(page);
-          if (page !== 'results') {
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+      {/* Clean 3-Zone Top Bar */}
+      <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+        <button
+          type="button"
+          onClick={() => {
+            setCurrentPage('workspace');
             setSelectedSubmissionId(null);
-          }
-        }}
-        teacher={teacher}
-        onLogout={handleLogout}
-        pendingReviews={summary?.pending_reviews ?? 0}
-        mobileOpen={mobileMenuOpen}
-        onCloseMobile={() => setMobileMenuOpen(false)}
-      />
+          }}
+          className="flex items-center gap-2.5 text-slate-900 whitespace-nowrap shrink-0 cursor-pointer"
+        >
+          <span className="w-8 h-8 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0">
+            <BookOpenCheck className="w-4.5 h-4.5" aria-hidden="true" />
+          </span>
+          <span className="font-display text-lg font-bold tracking-tight">
+            SMARTGRADE
+          </span>
+        </button>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-20 bg-white border-b border-slate-200 px-6 lg:px-8 py-4 flex items-center justify-between gap-8">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Open navigation menu"
-              className="lg:hidden p-2 -ml-2 rounded-lg text-slate-600 hover:bg-slate-100"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-            <div className="min-w-0">
-              <h1 className="font-display text-lg font-semibold text-slate-900 truncate">
-                {headerMeta.title}
-              </h1>
-              <p className="text-xs text-slate-500 truncate hidden sm:block">
-                {headerMeta.subtitle}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0">
-            {currentPage !== 'submit-answer' && (
+        <nav
+          className="hidden md:flex items-center gap-7 text-sm font-medium"
+          aria-label="Primary navigation"
+        >
+          {navLinks.map((link) => {
+            const active = currentPage === link.id;
+            return (
               <button
+                key={link.id}
                 type="button"
-                onClick={() => setCurrentPage('submit-answer')}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-medium text-white hover:bg-blue-800 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                onClick={() => {
+                  setCurrentPage(link.id);
+                  if (link.id !== 'results') {
+                    setSelectedSubmissionId(null);
+                  }
+                }}
+                className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  active
+                    ? 'border-blue-700 text-blue-800'
+                    : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
               >
-                Evaluate Answer
+                {link.label}
+                {link.id === 'results' &&
+                  summary &&
+                  summary.pending_reviews > 0 && (
+                    <span className="ml-1.5 font-mono tabular-nums text-xs text-amber-700">
+                      ({summary.pending_reviews})
+                    </span>
+                  )}
               </button>
+            );
+          })}
+        </nav>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={handleSwitchAccount}
+            className="hidden md:inline-flex rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            Switch Account
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((v) => !v)}
+            aria-label="Toggle navigation menu"
+            className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
+          >
+            {mobileMenuOpen ? (
+              <X className="w-5 h-5" />
+            ) : (
+              <Menu className="w-5 h-5" />
             )}
-          </div>
-        </header>
+          </button>
+        </div>
+      </header>
 
-        <main className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {currentPage === 'dashboard' && (
-            <DashboardPage
-              summary={summary}
-              loading={loadingData}
-              onNavigate={setCurrentPage}
-              onOpenSubmission={handleOpenSubmission}
-            />
-          )}
-
-          {currentPage === 'create-question' && (
-            <CreateQuestionPage
-              subjects={subjects}
-              questions={questions}
-              onDataChanged={loadAllData}
-              onEditRubric={(qId) => {
-                setFocusedQuestionId(qId);
-                setCurrentPage('rubrics');
+      {/* Mobile Dropdown Navigation */}
+      {mobileMenuOpen && (
+        <div className="md:hidden bg-white border-b border-slate-200 px-6 py-3 space-y-1">
+          {navLinks.map((link) => (
+            <button
+              key={link.id}
+              type="button"
+              onClick={() => {
+                setCurrentPage(link.id);
+                setMobileMenuOpen(false);
               }}
-              onSubmitForQuestion={(qId) => {
-                setFocusedQuestionId(qId);
-                setCurrentPage('submit-answer');
-              }}
-              onNavigate={setCurrentPage}
-            />
-          )}
+              className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${
+                currentPage === link.id
+                  ? 'bg-blue-50 text-blue-800'
+                  : 'text-slate-700'
+              }`}
+            >
+              {link.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handleSwitchAccount}
+            className="block w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-500"
+          >
+            Switch Account ({teacher.name})
+          </button>
+        </div>
+      )}
 
-          {currentPage === 'rubrics' && (
-            <RubricManagementPage
-              questions={questions}
-              initialQuestionId={focusedQuestionId}
-              onDataChanged={loadAllData}
-              onOpenSubmission={handleOpenSubmission}
-            />
-          )}
+      <main className="flex-1 p-5 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        {currentPage === 'workspace' && (
+          <GradeWorkspacePage
+            questions={questions}
+            submissions={submissions}
+            teacherName={teacher.name}
+            loading={loadingData}
+            initialQuestionId={focusedQuestionId}
+            initialTab={workspaceTab}
+            onDataChanged={loadAllData}
+            onOpenNewQuestion={() => setCurrentPage('create-question')}
+          />
+        )}
 
-          {currentPage === 'submit-answer' && (
-            <SubmitAnswerPage
-              questions={questions}
-              initialQuestionId={focusedQuestionId}
-              onSubmissionGraded={async (sub) => {
-                await loadAllData();
-                setSelectedSubmissionId(sub.id);
-                setCurrentPage('results');
-              }}
-            />
-          )}
+        {currentPage === 'results' && (
+          <ResultsPage
+            questions={questions}
+            submissions={submissions}
+            selectedSubmissionId={selectedSubmissionId}
+            teacherName={teacher.name}
+            onSelectSubmission={setSelectedSubmissionId}
+            onDataChanged={loadAllData}
+          />
+        )}
 
-          {currentPage === 'results' && (
-            <ResultsPage
-              questions={questions}
-              submissions={submissions}
-              selectedSubmissionId={selectedSubmissionId}
-              teacherName={teacher.name}
-              onSelectSubmission={setSelectedSubmissionId}
-              onDataChanged={loadAllData}
-            />
-          )}
+        {currentPage === 'history' && (
+          <HistoryPage
+            history={history}
+            questions={questions}
+            onOpenSubmission={handleOpenSubmission}
+          />
+        )}
 
-          {currentPage === 'history' && (
-            <HistoryPage
-              history={history}
-              questions={questions}
-              onOpenSubmission={handleOpenSubmission}
-            />
-          )}
-        </main>
-      </div>
+        {currentPage === 'create-question' && (
+          <CreateQuestionPage
+            subjects={subjects}
+            questions={questions}
+            onDataChanged={loadAllData}
+            onEditRubric={(qId) => {
+              setFocusedQuestionId(qId);
+              setWorkspaceTab('rubric');
+              setCurrentPage('workspace');
+            }}
+            onSubmitForQuestion={(qId) => {
+              setFocusedQuestionId(qId);
+              setWorkspaceTab('report');
+              setCurrentPage('workspace');
+            }}
+            onNavigate={setCurrentPage}
+          />
+        )}
+      </main>
     </div>
   );
 }

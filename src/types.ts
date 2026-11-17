@@ -1,10 +1,8 @@
 export type PageId =
-  | 'dashboard'
-  | 'create-question'
-  | 'rubrics'
-  | 'submit-answer'
+  | 'workspace'
   | 'results'
-  | 'history';
+  | 'history'
+  | 'create-question';
 
 export interface TeacherProfile {
   id: number;

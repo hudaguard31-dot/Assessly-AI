@@ -240,9 +240,9 @@ app.get('/api/submissions/:id', (req, res) => {
 app.post('/api/submissions/evaluate', async (req, res) => {
   const { question_id, student_name, student_id, answer_text } = req.body ?? {};
   const qId = Number(question_id);
-  if (!Number.isFinite(qId) || !student_name || !answer_text) {
+  if (!Number.isFinite(qId) || !answer_text || !String(answer_text).trim()) {
     res.status(400).json({
-      error: 'Question, student name, and written answer are required.',
+      error: 'Please select a question and enter an answer to grade.',
     });
     return;
   }
@@ -253,11 +253,17 @@ app.post('/api/submissions/evaluate', async (req, res) => {
     return;
   }
 
+  const existingCount = listSubmissions(qId).length;
+  const resolvedName =
+    student_name && String(student_name).trim()
+      ? String(student_name).trim()
+      : `Response #${existingCount + 1}`;
+
   try {
     const aiResult = await gradeAnswerWithGemini(question, String(answer_text));
     const submission = saveNewSubmissionGrade({
       question,
-      student_name: String(student_name),
+      student_name: resolvedName,
       student_id: String(student_id ?? ''),
       answer_text: String(answer_text),
       total_score: aiResult.total_score,

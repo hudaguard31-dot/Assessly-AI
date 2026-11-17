@@ -126,6 +126,7 @@ export function initDatabase(): void {
   `);
 
   seedInitialData();
+  seedAdditionalInbuiltQuestions();
 }
 
 function seedInitialData(): void {
@@ -281,25 +282,24 @@ function seedInitialData(): void {
       1
     ).lastInsertRowid
   );
-  q3CriteriaSeed(q3Id);
-
-  function q3CriteriaSeed(questionId: number) {
-    const list = [
-      {
-        name: 'Natural Resources (Coal & Iron)',
-        description: 'Explains how accessible coal/iron enabled steam power and manufacturing.',
-        max_marks: 3,
-      },
-      {
-        name: 'Labor, Agriculture, or Capital',
-        description: 'Explains a second structural driver such as agricultural surplus, labor shift, or investment capital.',
-        max_marks: 3,
-      },
-    ];
-    list.forEach((c, idx) => {
-      insertCriterion.run(questionId, c.name, c.description, c.max_marks, idx);
-    });
-  }
+  const q3CriterionIds: number[] = [];
+  [
+    {
+      name: 'Natural Resources (Coal & Iron)',
+      description: 'Explains how accessible coal/iron enabled steam power and manufacturing.',
+      max_marks: 3,
+    },
+    {
+      name: 'Labor, Agriculture, or Capital',
+      description: 'Explains a second structural driver such as agricultural surplus, labor shift, or investment capital.',
+      max_marks: 3,
+    },
+  ].forEach((c, idx) => {
+    const cid = Number(
+      insertCriterion.run(q3Id, c.name, c.description, c.max_marks, idx).lastInsertRowid
+    );
+    q3CriterionIds.push(cid);
+  });
 
   // Seed realistic sample submissions
   const insertSubmission = db.prepare(
@@ -658,6 +658,237 @@ function seedInitialData(): void {
     }),
     'Gemini AI'
   );
+
+  // Submission 5: History submission
+  const s5Id = Number(
+    insertSubmission.run(
+      q3Id,
+      'Ethan Brooks',
+      'STU-1063',
+      'Britain had huge coal and iron mines close to the surface which powered steam engines and built railways and machines. Also new farming methods meant fewer farmers were needed so workers moved to factory cities.',
+      5.5,
+      6,
+      90,
+      'reliable',
+      JSON.stringify([]),
+      'Strong identification of both natural resources and agricultural/labor shifts with clear causal links.',
+      0,
+      '',
+      1
+    ).lastInsertRowid
+  );
+  const s5Grades = [
+    {
+      cid: q3CriterionIds[0],
+      name: 'Natural Resources (Coal & Iron)',
+      max: 3,
+      awarded: 3,
+      quote: 'Britain had huge coal and iron mines close to the surface which powered steam engines and built railways and machines.',
+      reason: 'Clearly explains how accessible coal and iron powered steam engines and manufacturing.',
+    },
+    {
+      cid: q3CriterionIds[1],
+      name: 'Labor, Agriculture, or Capital',
+      max: 3,
+      awarded: 2.5,
+      quote: 'new farming methods meant fewer farmers were needed so workers moved to factory cities.',
+      reason: 'Accurately links agricultural improvements to urban labor supply; could briefly note food surplus.',
+    },
+  ];
+  for (const g of s5Grades) {
+    insertGrade.run(s5Id, g.cid, g.name, g.max, g.awarded, g.quote, g.reason, 0);
+  }
+  insertHistory.run(
+    s5Id,
+    q3Id,
+    'Ethan Brooks',
+    'Causes of the First Industrial Revolution',
+    'initial_ai',
+    null,
+    5.5,
+    6,
+    null,
+    90,
+    1,
+    'Initial AI evaluation completed using Rubric v1.',
+    JSON.stringify({
+      criteria_changes: s5Grades.map((g) => ({
+        criterion_name: g.name,
+        new_marks: g.awarded,
+        max_marks: g.max,
+        reason: g.reason,
+      })),
+    }),
+    'Gemini AI'
+  );
+}
+
+function seedAdditionalInbuiltQuestions(): void {
+  // Ensure History question has at least one inbuilt response on existing DBs
+  const historyQ = db
+    .prepare(
+      "SELECT id FROM questions WHERE title = 'Causes of the First Industrial Revolution'"
+    )
+    .get() as { id: number } | undefined;
+  if (historyQ) {
+    const histSubCount = (
+      db
+        .prepare('SELECT COUNT(*) as c FROM submissions WHERE question_id = ?')
+        .get(historyQ.id) as { c: number }
+    ).c;
+    if (histSubCount === 0) {
+      const critRows = db
+        .prepare(
+          'SELECT id, name, max_marks FROM rubric_criteria WHERE question_id = ? ORDER BY sort_order ASC'
+        )
+        .all(historyQ.id) as Array<{ id: number; name: string; max_marks: number }>;
+      const sRes = db
+        .prepare(
+          `INSERT INTO submissions (
+            question_id, student_name, student_id, answer_text, total_score, max_marks,
+            confidence, reliability_status, uncertainty_reasons, overall_feedback,
+            manual_override, teacher_note, rubric_version
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', 1)`
+        )
+        .run(
+          historyQ.id,
+          'Ethan Brooks',
+          'STU-1063',
+          'Britain had huge coal and iron mines close to the surface which powered steam engines and built railways and machines. Also new farming methods meant fewer farmers were needed so workers moved to factory cities.',
+          5.5,
+          6,
+          90,
+          'reliable',
+          '[]',
+          'Strong identification of both natural resources and agricultural/labor shifts with clear causal links.'
+        );
+      const subId = Number(sRes.lastInsertRowid);
+      const gStmt = db.prepare(
+        `INSERT INTO criterion_grades (
+          submission_id, criterion_id, criterion_name, max_marks, awarded_marks,
+          evidence_quote, reasoning, is_manual_override
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
+      );
+      if (critRows[0]) {
+        gStmt.run(
+          subId,
+          critRows[0].id,
+          critRows[0].name,
+          critRows[0].max_marks,
+          3,
+          'Britain had huge coal and iron mines close to the surface which powered steam engines and built railways and machines.',
+          'Clearly explains how accessible coal and iron powered steam engines and manufacturing.'
+        );
+      }
+      if (critRows[1]) {
+        gStmt.run(
+          subId,
+          critRows[1].id,
+          critRows[1].name,
+          critRows[1].max_marks,
+          2.5,
+          'new farming methods meant fewer farmers were needed so workers moved to factory cities.',
+          'Accurately links agricultural improvements to urban labor supply; could briefly note food surplus.'
+        );
+      }
+      db.prepare(
+        `INSERT INTO grading_history (
+          submission_id, question_id, student_name, question_title, event_type,
+          previous_score, new_score, max_marks, previous_confidence, new_confidence,
+          rubric_version, summary, details_json, actor_name
+        ) VALUES (?, ?, 'Ethan Brooks', 'Causes of the First Industrial Revolution', 'initial_ai', NULL, 5.5, 6, NULL, 90, 1, 'Initial AI evaluation completed using Rubric v1.', '{}', 'Gemini AI')`
+      ).run(subId, historyQ.id);
+    }
+  }
+
+  // Idempotent seed for Computer Science question & responses
+  const existingCs = db
+    .prepare("SELECT id FROM questions WHERE title = 'How Binary Search Works'")
+    .get() as { id: number } | undefined;
+
+  if (!existingCs) {
+    let csSubj = db
+      .prepare("SELECT id FROM subjects WHERE code = 'CS-102'")
+      .get() as { id: number } | undefined;
+    if (!csSubj) {
+      const sRes = db
+        .prepare('INSERT INTO subjects (name, code, description) VALUES (?, ?, ?)')
+        .run(
+          'Algorithms & Data Structures',
+          'CS-102',
+          'Searching, sorting, complexity analysis, and foundational algorithms.'
+        );
+      csSubj = { id: Number(sRes.lastInsertRowid) };
+    }
+
+    const qRes = db
+      .prepare(
+        `INSERT INTO questions (subject_id, title, prompt, model_answer, max_marks, rubric_version)
+         VALUES (?, ?, ?, ?, ?, 1)`
+      )
+      .run(
+        csSubj.id,
+        'How Binary Search Works',
+        'Explain how the binary search algorithm finds a target value in a list, including its precondition and time complexity.',
+        'Binary search requires the input array to be sorted beforehand. It compares the target value to the middle element of the search range; if they match, the index is returned. If the target is smaller, the upper half is discarded; if larger, the lower half is discarded. Repeating this halving process yields O(log n) worst-case time complexity.',
+        8
+      );
+    const qId = Number(qRes.lastInsertRowid);
+    const critStmt = db.prepare(
+      'INSERT INTO rubric_criteria (question_id, name, description, max_marks, sort_order) VALUES (?, ?, ?, ?, ?)'
+    );
+    const c1 = Number(
+      critStmt.run(qId, 'Sorted Precondition', 'States that the input list/array must already be sorted.', 2, 0).lastInsertRowid
+    );
+    const c2 = Number(
+      critStmt.run(qId, 'Midpoint Comparison & Halving', 'Explains comparing against the middle element and discarding half the range each step.', 4, 1).lastInsertRowid
+    );
+    const c3 = Number(
+      critStmt.run(qId, 'Time Complexity', 'Identifies logarithmic O(log n) time complexity.', 2, 2).lastInsertRowid
+    );
+
+    const subStmt = db.prepare(
+      `INSERT INTO submissions (
+        question_id, student_name, student_id, answer_text, total_score, max_marks,
+        confidence, reliability_status, uncertainty_reasons, overall_feedback,
+        manual_override, teacher_note, rubric_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', 1)`
+    );
+    const gradeStmt = db.prepare(
+      `INSERT INTO criterion_grades (
+        submission_id, criterion_id, criterion_name, max_marks, awarded_marks,
+        evidence_quote, reasoning, is_manual_override
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
+    );
+    const histStmt = db.prepare(
+      `INSERT INTO grading_history (
+        submission_id, question_id, student_name, question_title, event_type,
+        previous_score, new_score, max_marks, previous_confidence, new_confidence,
+        rubric_version, summary, details_json, actor_name
+      ) VALUES (?, ?, ?, ?, 'initial_ai', NULL, ?, ?, NULL, ?, 1, ?, ?, 'Gemini AI')`
+    );
+
+    const sA = Number(
+      subStmt.run(
+        qId,
+        'Rohan Mehta',
+        'STU-2015',
+        'Binary search only works on a sorted array. You check the middle item first. If the number you want is smaller, you throw away the right half and repeat on the left half; if bigger, you search the right half. Because it cuts the problem in half every step, it runs in O(log n) time.',
+        8,
+        8,
+        95,
+        'reliable',
+        '[]',
+        'Accurate, concise explanation covering the sorted requirement, midpoint halving, and O(log n) complexity.'
+      ).lastInsertRowid
+    );
+    [
+      { cid: c1, name: 'Sorted Precondition', max: 2, awarded: 2, quote: 'Binary search only works on a sorted array.', reason: 'Explicitly identifies sorted input requirement.' },
+      { cid: c2, name: 'Midpoint Comparison & Halving', max: 4, awarded: 4, quote: 'You check the middle item first. If the number you want is smaller, you throw away the right half and repeat on the left half', reason: 'Clearly explains midpoint comparison and halving the search space.' },
+      { cid: c3, name: 'Time Complexity', max: 2, awarded: 2, quote: 'it runs in O(log n) time.', reason: 'Correctly states O(log n) complexity.' },
+    ].forEach((g) => gradeStmt.run(sA, g.cid, g.name, g.max, g.awarded, g.quote, g.reason));
+    histStmt.run(sA, qId, 'Rohan Mehta', 'How Binary Search Works', 8, 8, 95, 'Initial AI evaluation completed using Rubric v1.', '{}');
+  }
 }
 
 // Auth queries
